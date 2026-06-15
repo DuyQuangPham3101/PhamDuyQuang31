@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stitcher - Ghép Hóa Đơn In Nhiệt</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="index.css">
+</head>
+<body>
+    <div class="app-container">
+        <header class="app-header">
+            <div class="logo">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"/><rect x="6" y="14" width="12" height="8" rx="1"/></svg>
+                <h1>Thermal<span>Stitcher</span></h1>
+            </div>
+            <p class="subtitle">Ghép hàng loạt hóa đơn thành một dải dọc để in nhanh trong 1 lần</p>
+        </header>
+
+        <main class="app-content">
+            <!-- Cột bên trái: Cài đặt và Tải ảnh -->
+            <div class="control-panel">
+                <!-- Vùng tải ảnh -->
+                <div class="card upload-card">
+                    <div class="drag-zone" id="dragZone">
+                        <input type="file" id="fileInput" multiple accept="image/*" class="file-input">
+                        <div class="upload-icon">
+                            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                        </div>
+                        <h3>Chọn hoặc kéo thả ảnh hóa đơn vào đây</h3>
+                        <p>Hỗ trợ tải lên nhiều file ảnh cùng lúc (PNG, JPG, WebP)</p>
+                    </div>
+                </div>
+
+                <!-- Thiết lập -->
+                <div class="card settings-card">
+                    <h2>Cấu hình in nhiệt</h2>
+                    <div class="settings-grid">
+                        <div class="control-group">
+                            <label for="widthPreset">Khổ in (Chiều rộng)</label>
+                            <select id="widthPreset">
+                                <option value="384" selected>Máy in 58mm (384px)</option>
+                                <option value="576">Máy in 80mm (576px)</option>
+                                <option value="auto">Tự động (Giữ độ phân giải gốc)</option>
+                            </select>
+                        </div>
+
+                        <div class="control-group">
+                            <label for="spacing">Khoảng cách giữa các ảnh</label>
+                            <select id="spacing">
+                                <option value="0">0 px (Liền mạch)</option>
+                                <option value="8">8 px</option>
+                                <option value="16" selected>16 px</option>
+                                <option value="24">24 px</option>
+                                <option value="32">32 px</option>
+                            </select>
+                        </div>
+
+                        <div class="control-group checkbox-group">
+                            <input type="checkbox" id="showCutLine" checked>
+                            <label for="showCutLine">Vẽ đường kẻ nét đứt để dễ cắt giấy</label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Danh sách ảnh đã tải lên -->
+                <div class="card list-card" id="listCard" style="display: none;">
+                    <div class="list-header">
+                        <h2>Danh sách hóa đơn (<span id="imageCount">0</span>)</h2>
+                        <button id="clearAllBtn" class="btn btn-danger-link">Xóa tất cả</button>
+                    </div>
+                    <div class="image-list" id="imageList">
+                        <!-- Danh sách ảnh sẽ render động ở đây -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Cột bên phải: Xem trước và Tải xuống -->
+            <div class="preview-panel">
+                <div class="card preview-card">
+                    <div class="preview-header">
+                        <h2>Xem trước ảnh ghép</h2>
+                        <span class="badge" id="canvasSizeBadge">384 x 0 px</span>
+                    </div>
+                    <div class="preview-container">
+                        <!-- Empty State -->
+                        <div class="empty-state" id="emptyState">
+                            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                            <p>Tải ảnh hóa đơn lên để xem kết quả ghép tại đây</p>
+                        </div>
+                        <!-- Live Preview Canvas -->
+                        <div class="canvas-wrapper" id="canvasWrapper" style="display: none;">
+                            <canvas id="mergeCanvas"></canvas>
+                        </div>
+                    </div>
+                    
+                    <button id="downloadBtn" class="btn btn-primary btn-block" disabled>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        Tải ảnh đã ghép xuống
+                    </button>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="index.js"></script>
+</body>
+</html>
