@@ -41,9 +41,11 @@
                         <div class="control-group">
                             <label for="widthPreset">Khổ in (Chiều rộng)</label>
                             <select id="widthPreset">
-                                <option value="384" selected>Máy in 58mm (384px)</option>
-                                <option value="576">Máy in 80mm (576px)</option>
-                                <option value="auto">Tự động (Giữ độ phân giải gốc)</option>
+                                <option value="768" selected>Máy in 58mm - Sắc nét 2X (768px)</option>
+                                <option value="384">Máy in 58mm - Tiêu chuẩn (384px)</option>
+                                <option value="1152">Máy in 80mm - Sắc nét 2X (1152px)</option>
+                                <option value="576">Máy in 80mm - Tiêu chuẩn (576px)</option>
+                                <option value="auto">Tự động (Giữ độ phân giải gốc - Rất sắc nét)</option>
                             </select>
                         </div>
 
@@ -61,6 +63,37 @@
                         <div class="control-group checkbox-group">
                             <input type="checkbox" id="showCutLine" checked>
                             <label for="showCutLine">Vẽ đường kẻ nét đứt để dễ cắt giấy</label>
+                        </div>
+
+                        <div class="control-group checkbox-group">
+                            <input type="checkbox" id="autoCrop" checked>
+                            <label for="autoCrop">Tự động cắt bỏ lề thừa ảnh hóa đơn</label>
+                        </div>
+
+                        <div class="control-group checkbox-group">
+                            <input type="checkbox" id="monochromeMode" checked>
+                            <label for="monochromeMode">Tối ưu in nhiệt sắc nét (Chuyển trắng đen thuần)</label>
+                        </div>
+
+                        <div class="control-group" id="cropPaddingGroup">
+                            <label for="cropPadding">Lề chừa ra sau khi cắt (Padding)</label>
+                            <select id="cropPadding">
+                                <option value="0">0 px</option>
+                                <option value="4">4 px</option>
+                                <option value="8">8 px</option>
+                                <option value="12" selected>12 px</option>
+                                <option value="16">16 px</option>
+                                <option value="20">20 px</option>
+                            </select>
+                        </div>
+
+                        <div class="control-group" id="textContrastGroup">
+                            <label for="textContrast">Độ đậm nét của chữ</label>
+                            <select id="textContrast">
+                                <option value="130">Mảnh nét (Hạn chế nhòe, dính chữ)</option>
+                                <option value="180" selected>Trung bình (Mặc định)</option>
+                                <option value="215">Đậm nét (Hạn chế đứt nét, mờ nhạt)</option>
+                            </select>
                         </div>
                     </div>
                 </div>
@@ -96,14 +129,103 @@
                         </div>
                     </div>
                     
-                    <button id="downloadBtn" class="btn btn-primary btn-block" disabled>
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                        Tải ảnh đã ghép xuống
-                    </button>
+                    <div class="action-buttons">
+                        <button id="downloadBtn" class="btn btn-primary" disabled style="margin-top: 0; width: 100%;">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                            Tải ảnh PNG
+                        </button>
+                        <button id="downloadPdfBtn" class="btn btn-success" disabled style="margin-top: 0; width: 100%;">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                            Tải file PDF
+                        </button>
+                        <button id="printBleBtn" class="btn btn-bluetooth" disabled style="grid-column: span 2; width: 100%;">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"/><rect x="6" y="14" width="12" height="8" rx="1"/></svg>
+                            In trực tiếp qua Bluetooth
+                        </button>
+                    </div>
                 </div>
             </div>
         </main>
     </div>
+
+    <!-- Print Options & Status Modal -->
+    <div id="printModal" class="modal-overlay" style="display: none;">
+        <div class="modal-container">
+            <div class="modal-header">
+                <h2>Cấu hình & In Bluetooth</h2>
+                <button id="closePrintModal" class="btn-close">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+            </div>
+            
+            <div class="modal-body">
+                <!-- Cấu hình trước in -->
+                <div id="printSettingsForm">
+                    <div class="control-group" style="margin-bottom: 1.25rem;">
+                        <label for="printerType">Loại máy in của bạn</label>
+                        <select id="printerType">
+                            <option value="cat" selected>Máy in Cat / Fun Print (BLE 0x5178)</option>
+                            <option value="escpos">Máy in hóa đơn tiêu chuẩn (ESC/POS BLE)</option>
+                        </select>
+                    </div>
+                    
+                    <div class="control-group" id="printDensityGroup" style="margin-bottom: 1.25rem;">
+                        <label for="printDensity">Độ đậm nhiệt (Năng lượng in)</label>
+                        <select id="printDensity">
+                            <option value="low">Nhạt (Tiết kiệm pin)</option>
+                            <option value="medium">Vừa (Mặc định)</option>
+                            <option value="high" selected>Đậm (Khuyên dùng cho hóa đơn sắc nét)</option>
+                        </select>
+                    </div>
+                    
+                    <div class="control-group" style="margin-bottom: 1.5rem;">
+                        <label for="paperFeed">Đẩy giấy sau khi in xong</label>
+                        <select id="paperFeed">
+                            <option value="0">Không đẩy giấy</option>
+                            <option value="10">Đẩy giấy 1.0 cm</option>
+                            <option value="20" selected>Đẩy giấy 2.0 cm (Mặc định)</option>
+                            <option value="30">Đẩy giấy 3.0 cm</option>
+                            <option value="40">Đẩy giấy 4.0 cm</option>
+                        </select>
+                    </div>
+                    
+                    <div class="warning-alert" style="margin-bottom: 1.5rem;">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #fbbf24; flex-shrink: 0; margin-right: 0.5rem;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                        <span>Đảm bảo máy in của bạn đã bật nguồn và đang mở Bluetooth trên thiết bị này.</span>
+                    </div>
+
+                    <button id="startPrintBtn" class="btn btn-primary btn-block" style="margin-top: 0;">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"/><rect x="6" y="14" width="12" height="8" rx="1"/></svg>
+                        Kết nối & In ngay
+                    </button>
+                </div>
+                
+                <!-- Giao diện trong quá trình in -->
+                <div id="printProgressStatus" style="display: none;">
+                    <div class="printer-icon-container">
+                        <div class="printer-animated-icon">
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"/><rect x="6" y="14" width="12" height="8" rx="1"/></svg>
+                        </div>
+                    </div>
+                    
+                    <div class="status-title" id="printStatusTitle">Đang quét tìm thiết bị...</div>
+                    <div class="status-description" id="printStatusDesc">Hãy chọn máy in của bạn trong cửa sổ kết nối.</div>
+                    
+                    <div class="progress-bar-container" id="progressBarContainer" style="display: none; margin: 1.25rem 0 0.5rem 0;">
+                        <div class="progress-bar-fill" id="progressBarFill" style="width: 0%;"></div>
+                    </div>
+                    <div class="progress-percentage" id="progressPercentage" style="display: none;">0%</div>
+                    
+                    <button id="cancelPrintBtn" class="btn btn-danger-link btn-block" style="margin-top: 1.5rem; font-weight: 500;">
+                        Hủy in
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- jsPDF Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="index.js"></script>
 </body>
 </html>
