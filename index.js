@@ -977,49 +977,40 @@ async function startBluetoothPrint() {
 
 
 // Logic in cho dòng máy Cat Printer / Fun Print (giao thức 0x5178) - Đã tối ưu chống tràn RAM
+// Logic in trực tiếp từ TRÌNH DUYỆT ĐIỆN THOẠI xuống máy PD01 - Sắc nét, tốc độ cao, chống sập
 async function printToCatPrinter(characteristic, binarized, width, height, feedMm) {
-    // A. Gửi độ đậm nhạt (Energy)
-    const densityVal = printDensitySelect ? printDensitySelect.value : 'high';
-    let energyByte = 0x35; // Đậm (mặc định cho đơn hàng)
-    let energyCRC = 0x8B;
-    if (densityVal === 'low') {
-        energyByte = 0x32;
-        energyCRC = 0x9E;
-    } else if (densityVal === 'medium') {
-        energyByte = 0x33;
-        energyCRC = 0x99;
-    }
-    const energyPacket = new Uint8Array([0x51, 0x78, 0xA4, 0x00, 0x01, 0x00, energyByte, energyCRC, 0xFF]);
+    // A. Gửi cấu hình độ đậm nhiệt tối đa (CMD: 0xA4)
+    const energyPacket = new Uint8Array([0x51, 0x78, 0xA4, 0x00, 0x01, 0x00, 0x35, 0x8B, 0xFF]);
     await writePacket(characteristic, energyPacket, 50);
 
-    // B. Gửi lệnh bắt đầu in latticeStart
+    // B. Gửi lệnh bắt đầu chu kỳ in Lattice (CMD: 0xA6)
     const latticeStart = new Uint8Array([0x51, 0x78, 0xA6, 0, 0x0B, 0, 0xAA, 0x55, 0x17, 0x38, 0x44, 0x5F, 0x5F, 0x5F, 0x44, 0x38, 0x2C, 0xA1, 0xFF]);
     await writePacket(characteristic, latticeStart, 50);
 
-    // C. Truyền từng dòng ảnh binarized
+    // C. Truyền dữ liệu dòng ảnh nhị phân
     const bytesPerLine = width / 8; 
     const rowBytes = new Uint8Array(bytesPerLine);
 
-    // CẤU HÌNH QUAN TRỌNG: Chia block để máy in nghỉ ngơi không bị tràn bộ đệm
-    const linesPerBlock = 120; // Cứ in 120 dòng (khoảng 1.5 cm giấy) thì dừng nghỉ cho mô tơ quay và giải phóng RAM
-    const blockDelayMs = 450;  // Thời gian nghỉ giữa các block (ms)
+    // THÔNG SỐ VÀNG CHO ĐIỆN THOẠI: Tăng tốc độ truyền nhưng có nhịp nghỉ thông minh
+    const linesPerBlock = 130; // Bơm liên tiếp 130 dòng tốc độ cao vào RAM máy in
+    const blockDelayMs = 450;  // Nghỉ 0.45 giây để máy in hết giấy rồi giải phóng RAM nhận tiếp
 
     for (let y = 0; y < height; y++) {
         if (shouldCancelPrint) throw new Error("Hủy in bởi người dùng");
 
-        // Đóng gói 8 điểm ảnh thành 1 byte (LSB-first)
+        // Đóng gói 8 điểm ảnh thành 1 byte (LSB-first cho dòng PD01)
         for (let x = 0; x < bytesPerLine; x++) {
             let b = 0;
             for (let bit = 0; bit < 8; bit++) {
                 const pixelVal = binarized[y * width + x * 8 + bit];
                 if (pixelVal === 1) {
-                    b |= (1 << bit);
+                    b |= (1 << bit); // 1 là điểm đen để đốt nhiệt
                 }
             }
             rowBytes[x] = b;
         }
 
-        // Tạo gói tin dòng dữ liệu CMD = 0xA2
+        // Tạo gói tin dữ liệu dòng CMD = 0xA2
         const linePacket = new Uint8Array(2 + 4 + bytesPerLine + 1 + 1);
         linePacket[0] = 0x51;
         linePacket[1] = 0x78;
@@ -1031,29 +1022,28 @@ async function printToCatPrinter(characteristic, binarized, width, height, feedM
         linePacket[6 + bytesPerLine] = calculateCRC8(0xA2, rowBytes);
         linePacket[6 + bytesPerLine + 1] = 0xFF;
 
-        // Tăng delay từ 10ms lên 25ms để luồng Bluetooth ổn định, tránh mất gói tin phần cứng
-        await writePacket(characteristic, linePacket, 25);
+        // ÉP GIẢM DELAY DÒNG: Hạ từ 25ms xuống thẳng 3ms để điện thoại đẩy data vèo vèo
+        await writePacket(characteristic, linePacket, 3);
 
-        // Kỹ thuật Flow Control: Nghỉ sau mỗi block để phần cứng xử lý kịp
+        // Kỹ thuật Flow Control giữ sóng Bluetooth không bị ngắt giữa chừng
         if (y > 0 && y % linesPerBlock === 0) {
-            updatePrintStatus("Máy in đang xử lý...", `Đang cho máy in nghỉ tránh quá tải (${y}/${height} dòng)...`, Math.round((y / height) * 90));
+            updatePrintStatus("Máy in đang xử lý...", `Đang nghỉ nạp giấy tránh tràn bộ đệm (${y}/${height})...`, Math.round((y / height) * 90));
             await new Promise(resolve => setTimeout(resolve, blockDelayMs));
         }
 
-        // Cập nhật UI
-        if (y % 15 === 0) {
+        if (y % 20 === 0) {
             const percent = Math.round((y / height) * 90);
-            updatePrintStatus("Đang in hóa đơn...", `Đang truyền dòng ${y + 1}/${height}...`, percent);
+            updatePrintStatus("Đang in hóa đơn Shopee...", `Đang truyền dòng ${y + 1}/${height}...`, percent);
         }
     }
 
-    // D. Gửi lệnh kết thúc in latticeEnd
+    // D. Gửi lệnh kết thúc chu kỳ in Lattice
     const latticeEnd = new Uint8Array([0x51, 0x78, 0xA6, 0, 0x0B, 0, 0xAA, 0x55, 0x17, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x17, 0x11, 0xFF]);
     await writePacket(characteristic, latticeEnd, 50);
 
-    // E. Lệnh đẩy giấy ra lề cắt
+    // E. Tự động đẩy giấy thêm 2cm ra lề răng cưa để dễ xé đơn
     if (feedMm > 0) {
-        updatePrintStatus("Đang đẩy giấy...", "Đang kéo giấy ra lề cắt.", 95);
+        updatePrintStatus("Đang đẩy giấy...", "Kéo đơn ra lề cắt.", 95);
         const steps = feedMm * 8;
         const feedBytes = new Uint8Array([steps & 0xff, (steps >> 8) & 0xff]);
         const feedCRC = calculateCRC8(0xA1, feedBytes);
