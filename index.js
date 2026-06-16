@@ -981,43 +981,46 @@ async function printToCatPrinter(characteristic, binarized, width, height, feedM
     const latticeStart = new Uint8Array([0x51, 0x78, 0xA6, 0, 0x0B, 0, 0xAA, 0x55, 0x17, 0x38, 0x44, 0x5F, 0x5F, 0x5F, 0x44, 0x38, 0x2C, 0xA1, 0xFF]);
     await writePacket(characteristic, latticeStart, 40);
 
-    // C. Truyền từng dòng ảnh binarized
+    // C. Truyền ảnh theo batch (gom nhiều dòng/lần để tăng tốc độ in)
     const bytesPerLine = width / 8; // 48 bytes cho w=384
-    const rowBytes = new Uint8Array(bytesPerLine);
+    const BATCH_SIZE = 10; // Gửi 10 dòng/lần, giảm ~10x số lần giao tiếp BLE
 
-    for (let y = 0; y < height; y++) {
+    for (let y = 0; y < height; y += BATCH_SIZE) {
         if (shouldCancelPrint) throw new Error("Hủy in bởi người dùng");
 
-        // Đóng gói 8 điểm ảnh thành 1 byte (LSB-first đối với dòng máy Cat)
-        for (let x = 0; x < bytesPerLine; x++) {
-            let b = 0;
-            for (let bit = 0; bit < 8; bit++) {
-                const pixelVal = binarized[y * width + x * 8 + bit];
-                if (pixelVal === 1) { // 1 là điểm đen
-                    b |= (1 << bit);
+        const actualBatch = Math.min(BATCH_SIZE, height - y);
+        // Mỗi gói = header(6) + data(bytesPerLine*actualBatch) + crc(1) + end(1)
+        const packetSize = 6 + bytesPerLine * actualBatch + 2;
+        const batchPacket = new Uint8Array(packetSize);
+        batchPacket[0] = 0x51;
+        batchPacket[1] = 0x78;
+        batchPacket[2] = 0xA2;
+        batchPacket[3] = 0x00;
+        const dataLen = bytesPerLine * actualBatch;
+        batchPacket[4] = dataLen & 0xff;
+        batchPacket[5] = (dataLen >> 8) & 0xff;
+
+        const rowData = new Uint8Array(dataLen);
+        for (let dy = 0; dy < actualBatch; dy++) {
+            const row = y + dy;
+            for (let x = 0; x < bytesPerLine; x++) {
+                let b = 0;
+                for (let bit = 0; bit < 8; bit++) {
+                    const pixelVal = binarized[row * width + x * 8 + bit];
+                    if (pixelVal === 1) b |= (1 << bit); // LSB-first cho Cat
                 }
+                rowData[dy * bytesPerLine + x] = b;
             }
-            rowBytes[x] = b;
         }
+        batchPacket.set(rowData, 6);
+        batchPacket[6 + dataLen] = calculateCRC8(0xA2, rowData);
+        batchPacket[6 + dataLen + 1] = 0xFF;
 
-        // Tạo gói tin dòng dữ liệu CMD = 0xA2
-        const linePacket = new Uint8Array(2 + 4 + bytesPerLine + 1 + 1);
-        linePacket[0] = 0x51;
-        linePacket[1] = 0x78;
-        linePacket[2] = 0xA2;
-        linePacket[3] = 0x00;
-        linePacket[4] = bytesPerLine & 0xff;
-        linePacket[5] = (bytesPerLine >> 8) & 0xff;
-        linePacket.set(rowBytes, 6);
-        linePacket[6 + bytesPerLine] = calculateCRC8(0xA2, rowBytes);
-        linePacket[6 + bytesPerLine + 1] = 0xFF;
+        // Gửi batch, delay 8ms/batch thay vì 25ms/dòng → nhanh hơn ~30x
+        await writePacket(characteristic, batchPacket, 8);
 
-        // Gửi dòng ảnh, giãn cách 25ms chống nghẽn bộ đệm và giữ máy chạy mượt
-        await writePacket(characteristic, linePacket, 25);
-
-        // Cập nhật tiến trình (chia khoảng 90% thời lượng cho phần này)
-        const percent = Math.round(((y + 1) / height) * 90);
-        updatePrintStatus("Đang in hóa đơn...", `Đang truyền dòng ${y + 1}/${height}...`, percent);
+        const percent = Math.round(((y + actualBatch) / height) * 90);
+        updatePrintStatus("Đang in hóa đơn...", `Đang truyền dòng ${Math.min(y + actualBatch, height)}/${height}...`, percent);
     }
 
     // D. Gửi lệnh kết thúc in latticeEnd
@@ -1141,7 +1144,7 @@ async function writePacket(characteristic, packet, delayMs = 25) {
 
 // Bổ trợ: Ghi mảng byte lớn bẻ nhỏ thành từng block 20 bytes để tránh lỗi MTU của BLE
 async function writeDataInChunks(characteristic, data, delayMs = 15) {
-    const chunkSize = 20;
+    const chunkSize = 182; // Tăng MTU chunk để giảm số lần write BLE
     for (let i = 0; i < data.length; i += chunkSize) {
         if (shouldCancelPrint) throw new Error("Hủy in bởi người dùng");
         
