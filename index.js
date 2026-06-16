@@ -818,19 +818,21 @@ async function startBluetoothPrint() {
             }
         }
 
-        // Giới hạn chiều cao tối đa 1200px để giảm số dòng in, tăng tốc độ
-        const MAX_PRINT_HEIGHT = 1200;
-        let targetHeight = Math.round(mergeCanvas.height * (targetWidth / mergeCanvas.width));
-        let finalWidth = targetWidth;
-        if (targetHeight > MAX_PRINT_HEIGHT) {
-            const scaleDown = MAX_PRINT_HEIGHT / targetHeight;
-            finalWidth = Math.round(targetWidth * scaleDown);
-            // Làm tròn về bội số của 8 (yêu cầu của Cat Printer)
-            finalWidth = Math.floor(finalWidth / 8) * 8;
-            targetHeight = MAX_PRINT_HEIGHT;
+        // 1. Xác định chiều rộng và chiều cao chuẩn không làm méo hóa đơn
+        let targetWidth = 384; // Khổ 58mm tiêu chuẩn của máy PD01 / Fun Print
+        const preset = widthPresetSelect ? widthPresetSelect.value : '384';
+        if (printerType === 'escpos') {
+            if (preset.includes('80mm') || preset.includes('576') || preset.includes('1152')) {
+                targetWidth = 576; // Khổ 80mm
+            }
         }
-        // Cập nhật targetWidth theo chiều rộng đã scale
-        const actualWidth = finalWidth || targetWidth;
+
+        // Giữ nguyên tỷ lệ ảnh gốc, tự động tính chiều cao thật theo chiều rộng mới
+        let actualWidth = targetWidth;
+        let targetHeight = Math.round(mergeCanvas.height * (targetWidth / mergeCanvas.width));
+
+        // Đảm bảo chiều rộng chia hết cho 8 (bắt buộc đối với dòng chip máy in nhiệt mini)
+        actualWidth = Math.floor(actualWidth / 8) * 8;
         
         updatePrintStatus("Đang xử lý ảnh...", `Đang chuyển đổi kích thước hóa đơn sang khổ ${actualWidth}x${targetHeight}px.`);
 
@@ -973,34 +975,39 @@ async function startBluetoothPrint() {
     }
 }
 
-// Logic in cho dòng máy Cat Printer / Fun Print (giao thức 0x5178)
+
+// Logic in cho dòng máy Cat Printer / Fun Print (giao thức 0x5178) - Đã tối ưu chống tràn RAM
 async function printToCatPrinter(characteristic, binarized, width, height, feedMm) {
     // A. Gửi độ đậm nhạt (Energy)
     const densityVal = printDensitySelect ? printDensitySelect.value : 'high';
-    let energyByte = 0x33; // Vừa (mặc định)
-    let energyCRC = 0x99;
+    let energyByte = 0x35; // Đậm (mặc định cho đơn hàng)
+    let energyCRC = 0x8B;
     if (densityVal === 'low') {
         energyByte = 0x32;
         energyCRC = 0x9E;
-    } else if (densityVal === 'high') {
-        energyByte = 0x35;
-        energyCRC = 0x8B;
+    } else if (densityVal === 'medium') {
+        energyByte = 0x33;
+        energyCRC = 0x99;
     }
     const energyPacket = new Uint8Array([0x51, 0x78, 0xA4, 0x00, 0x01, 0x00, energyByte, energyCRC, 0xFF]);
-    await writePacket(characteristic, energyPacket, 40);
+    await writePacket(characteristic, energyPacket, 50);
 
     // B. Gửi lệnh bắt đầu in latticeStart
     const latticeStart = new Uint8Array([0x51, 0x78, 0xA6, 0, 0x0B, 0, 0xAA, 0x55, 0x17, 0x38, 0x44, 0x5F, 0x5F, 0x5F, 0x44, 0x38, 0x2C, 0xA1, 0xFF]);
-    await writePacket(characteristic, latticeStart, 40);
+    await writePacket(characteristic, latticeStart, 50);
 
-    // C. Truyền từng dòng ảnh binarized (Cat Printer yêu cầu 1 dòng/gói)
-    const bytesPerLine = width / 8; // 48 bytes cho w=384
+    // C. Truyền từng dòng ảnh binarized
+    const bytesPerLine = width / 8; 
     const rowBytes = new Uint8Array(bytesPerLine);
+
+    // CẤU HÌNH QUAN TRỌNG: Chia block để máy in nghỉ ngơi không bị tràn bộ đệm
+    const linesPerBlock = 120; // Cứ in 120 dòng (khoảng 1.5 cm giấy) thì dừng nghỉ cho mô tơ quay và giải phóng RAM
+    const blockDelayMs = 450;  // Thời gian nghỉ giữa các block (ms)
 
     for (let y = 0; y < height; y++) {
         if (shouldCancelPrint) throw new Error("Hủy in bởi người dùng");
 
-        // Đóng gói 8 điểm ảnh thành 1 byte (LSB-first đối với dòng máy Cat)
+        // Đóng gói 8 điểm ảnh thành 1 byte (LSB-first)
         for (let x = 0; x < bytesPerLine; x++) {
             let b = 0;
             for (let bit = 0; bit < 8; bit++) {
@@ -1024,18 +1031,25 @@ async function printToCatPrinter(characteristic, binarized, width, height, feedM
         linePacket[6 + bytesPerLine] = calculateCRC8(0xA2, rowBytes);
         linePacket[6 + bytesPerLine + 1] = 0xFF;
 
-        // Giảm delay xuống 10ms/dòng (Cat Printer chịu được, nhanh hơn 2.5x so với 25ms)
-        await writePacket(characteristic, linePacket, 10);
+        // Tăng delay từ 10ms lên 25ms để luồng Bluetooth ổn định, tránh mất gói tin phần cứng
+        await writePacket(characteristic, linePacket, 25);
 
-        const percent = Math.round(((y + 1) / height) * 90);
-        if (y % 20 === 0) { // Cập nhật UI mỗi 20 dòng để không lag
+        // Kỹ thuật Flow Control: Nghỉ sau mỗi block để phần cứng xử lý kịp
+        if (y > 0 && y % linesPerBlock === 0) {
+            updatePrintStatus("Máy in đang xử lý...", `Đang cho máy in nghỉ tránh quá tải (${y}/${height} dòng)...`, Math.round((y / height) * 90));
+            await new Promise(resolve => setTimeout(resolve, blockDelayMs));
+        }
+
+        // Cập nhật UI
+        if (y % 15 === 0) {
+            const percent = Math.round((y / height) * 90);
             updatePrintStatus("Đang in hóa đơn...", `Đang truyền dòng ${y + 1}/${height}...`, percent);
         }
     }
 
     // D. Gửi lệnh kết thúc in latticeEnd
     const latticeEnd = new Uint8Array([0x51, 0x78, 0xA6, 0, 0x0B, 0, 0xAA, 0x55, 0x17, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x17, 0x11, 0xFF]);
-    await writePacket(characteristic, latticeEnd, 40);
+    await writePacket(characteristic, latticeEnd, 50);
 
     // E. Lệnh đẩy giấy ra lề cắt
     if (feedMm > 0) {
